@@ -24,6 +24,10 @@ class FFC4PDriver
       bool auto_awb = false;  
       bool compresse_assemble_image = false;
       bool enable_upside_down = false;
+<<<<<<< HEAD
+=======
+      bool use_rgb = false; // New parameter to choose between RGB and mono
+>>>>>>> Added Mono Cam
       int32_t fps = 20.0;
       int32_t resolution = 720;
       int32_t expose_time_us = 10000;
@@ -33,11 +37,19 @@ class FFC4PDriver
    
    struct FFCCameraConfig{
       dai::CameraBoardSocket socket;
+<<<<<<< HEAD
       dai::ColorCameraProperties::SensorResolution resolution = dai::ColorCameraProperties::SensorResolution::THE_720_P;
       std::string stream_name;
       bool is_master;
       FFCCameraConfig(dai::CameraBoardSocket sck,dai::ColorCameraProperties::SensorResolution res, std::string name,bool master):
          socket(sck),resolution(res),stream_name(name),is_master(master){};
+=======
+      std::string stream_name;
+      bool is_master;
+      bool is_connected;
+      FFCCameraConfig(dai::CameraBoardSocket sck, std::string name, bool master)
+         : socket(sck), stream_name(name), is_master(master), is_connected(false) {};
+>>>>>>> Added Mono Cam
    };
    struct ImageNode
    {
@@ -47,6 +59,7 @@ class FFC4PDriver
       cv::Mat image;
       std::chrono::time_point<std::chrono::steady_clock, std::chrono::steady_clock::duration> cap_time_stamp;
       int32_t frame_counter;
+<<<<<<< HEAD
       ImageNode( std::shared_ptr<dai::DataOutputQueue> data_output_q,std::string topic):data_output_q(data_output_q),topic(topic){
       }
    };
@@ -56,6 +69,17 @@ class FFC4PDriver
        {dai::CameraBoardSocket::CAM_B,dai::ColorCameraProperties::SensorResolution::THE_720_P, std::string("CAM_B"), false},
        {dai::CameraBoardSocket::CAM_C,dai::ColorCameraProperties::SensorResolution::THE_720_P, std::string("CAM_C"), false},
        {dai::CameraBoardSocket::CAM_D,dai::ColorCameraProperties::SensorResolution::THE_720_P, std::string("CAM_D"),false}};
+=======
+      ImageNode(std::shared_ptr<dai::DataOutputQueue> data_output_q, std::string topic)
+         : data_output_q(data_output_q), topic(topic) {}
+   };
+   
+   std::vector<FFCCameraConfig> CameraList = 
+      {{dai::CameraBoardSocket::CAM_A, std::string("CAM_A"), true},
+       {dai::CameraBoardSocket::CAM_B, std::string("CAM_B"), false},
+       {dai::CameraBoardSocket::CAM_C, std::string("CAM_C"), false},
+       {dai::CameraBoardSocket::CAM_D, std::string("CAM_D"), false}};
+>>>>>>> Added Mono Cam
    FFC4PDriver(std::shared_ptr<ros::NodeHandle>& nh);
    ~FFC4PDriver();
    int32_t InitPipeline();
@@ -84,10 +108,19 @@ class FFC4PDriver
    std::list<ImageNode> image_queue_;
    int32_t device_is_detected_ = 0;
    int32_t pipeline_is_init_ = 0;
+<<<<<<< HEAD
    CameraModuleConfig module_config_;
    
    //config translate
    dai::ColorCameraProperties::SensorResolution resolution_;
+=======
+   int32_t num_cameras = 0;
+   CameraModuleConfig module_config_;
+   
+   //config translate
+   dai::MonoCameraProperties::SensorResolution mono_resolution_; // Change to MonoCameraProperties
+   dai::ColorCameraProperties::SensorResolution color_resolution_; // Add ColorCameraProperties
+>>>>>>> Added Mono Cam
 
    //ros
    std::shared_ptr<ros::NodeHandle> ros_node_ = nullptr;
