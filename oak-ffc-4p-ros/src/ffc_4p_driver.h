@@ -27,7 +27,11 @@ class FFC4PDriver
 <<<<<<< HEAD
 =======
       bool use_rgb = false; // New parameter to choose between RGB and mono
+<<<<<<< HEAD
 >>>>>>> Added Mono Cam
+=======
+      bool multi_window = false; // New parameter for multi-window display
+>>>>>>> New Changes
       int32_t fps = 20.0;
       int32_t resolution = 720;
       int32_t expose_time_us = 10000;
@@ -94,6 +98,7 @@ class FFC4PDriver
       is_run_ = false;
       return;
    };
+
  private:
    void RosGrabImgThread();
    void StdGrabImgThread();

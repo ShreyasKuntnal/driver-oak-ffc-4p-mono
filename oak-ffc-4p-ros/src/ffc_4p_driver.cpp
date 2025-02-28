@@ -230,13 +230,14 @@ int32_t FFC4PDriver::InitPipeline(){
     nh.getParam("compresse_assemble_image", this->module_config_.compresse_assemble_image);
     nh.getParam("enable_upside_down", this->module_config_.enable_upside_down);
     nh.getParam("use_rgb", this->module_config_.use_rgb); // New parameter
+    nh.getParam("multi_window", this->module_config_.multi_window); // New parameter
 
     switch (this->module_config_.resolution){
         case 400:{
             if(!this->module_config_.use_rgb){
             this->mono_resolution_ = dai::MonoCameraProperties::SensorResolution::THE_400_P;
             }else{
-                ROS_WARN("Unsupport resolution %d, setting to default 720p", this->module_config_.resolution);
+                ROS_WARN("Unsupport resolution %d for Color Camera, setting to default 720p", this->module_config_.resolution);
                 this->color_resolution_ = dai::ColorCameraProperties::SensorResolution::THE_720_P;
             }
 
@@ -420,6 +421,7 @@ void FFC4PDriver::StdGrabImgThread(){
 	ROS_INFO("Stop grab tread\n");
 }
 <<<<<<< HEAD
+<<<<<<< HEAD
 
 void FFC4PDriver::GrabImg(){
 	static cv_bridge::CvImage cv_img, assemble_cv_img;
@@ -563,6 +565,8 @@ void FFC4PDriver::GrabImg(){
 // 		}
 // 	}
 // }
+=======
+>>>>>>> New Changes
 
 void FFC4PDriver::GrabImg(){
     static cv_bridge::CvImage cv_img, assemble_cv_img;
@@ -570,22 +574,50 @@ void FFC4PDriver::GrabImg(){
     static cv::Mat assemble_cv_mat;
     auto host_ros_now_time = ros::Time::now();
 
-    assemble_cv_img.header.stamp = host_ros_now_time;
-    assemble_cv_img.header.frame_id = "depth ai";
-    assemble_cv_img.image = assemble_cv_mat;
+    int image_height = 720; // Default height
+    int image_width = IMAGE_WIDTH; // Default width
 
-    cv_img.header.stamp = host_ros_now_time;
-    cv_img.header.frame_id = "depth ai";
-    
+    // Adjust the height and width based on the resolution
+    switch (this->module_config_.resolution) {
+        case 400:
+            image_height = 400;
+            image_width = 640; // Assuming 640x400 resolution
+            break;
+        case 720:
+            image_height = 720;
+            image_width = 1280; // Assuming 1280x720 resolution
+            break;
+        case 800:
+            image_height = 800;
+            image_width = 1280; // Assuming 1280x800 resolution
+            break;
+        case 1080:
+            image_height = 1080;
+            image_width = 1920; // Assuming 1920x1080 resolution
+            break;
+        default:
+            ROS_WARN("Unsupported resolution %d, setting to default 720p", this->module_config_.resolution);
+            image_height = 720;
+            image_width = 1280;
+            break;
+    }
+
+    int total_width = image_width * this->CameraList.size();
     if (this->module_config_.use_rgb) {
-        assemble_cv_mat = cv::Mat::zeros(720, 5120, CV_8UC3);
+        assemble_cv_mat = cv::Mat::zeros(image_height, total_width, CV_8UC3);
         assemble_cv_img.encoding = "bgr8";
         cv_img.encoding = "bgr8";
     } else {
-        assemble_cv_mat = cv::Mat::zeros(720, 5120, CV_8UC1);
+        assemble_cv_mat = cv::Mat::zeros(image_height, total_width, CV_8UC1);
         assemble_cv_img.encoding = "mono8";
         cv_img.encoding = "mono8";
     }
+    assemble_cv_img.header.stamp = host_ros_now_time;
+    assemble_cv_img.header.frame_id = "depth ai";
+    assemble_cv_img.image = assemble_cv_mat; // Ensure the image is properly resized
+
+    cv_img.header.stamp = host_ros_now_time;
+    cv_img.header.frame_id = "depth ai";
 
     expose_time_msg.data = this->module_config_.expose_time_us;
 
@@ -621,18 +653,84 @@ void FFC4PDriver::GrabImg(){
                 if(!queue_node.image.empty()){
                     cv_img.image = queue_node.image;
                     queue_node.ros_publisher.publish(cv_img.toCompressedImageMsg());
-				} else {
-					// ROS_WARN("Image for %s is empty, skipping publish", queue_node.topic.c_str());
+                } else {
+                    // ROS_WARN("Image for %s is empty, skipping publish", queue_node.topic.c_str());
                 }
             }
         } else {
-            int colow_position = 0;
-            for(auto & queue_node : this->image_queue_){
-                if(!queue_node.image.empty()){
-                    queue_node.image.copyTo(assemble_cv_img.image(cv::Rect(colow_position, 0, IMAGE_WIDTH, 720)));
-                    colow_position += IMAGE_WIDTH;
+            int rows, cols;
+            std::vector<int> camera_order;
+
+            if (this->num_cameras == 4) {
+                rows = 2;
+                cols = 2;
+                camera_order = {0, 3, 1, 2};
+            } else if (this->num_cameras == 3) {
+                rows = 2;
+                cols = 2;
+                if (!this->CameraList[0].is_connected) {
+                    camera_order = {1, 2, 3};
+                } else if (!this->CameraList[1].is_connected) {
+                    camera_order = {0, 2, 3};
+                } else if (!this->CameraList[2].is_connected) {
+                    camera_order = {0, 1, 3};
+                } else {
+                    camera_order = {0, 1, 2};
+                }
+            } else if (this->num_cameras == 2) {
+                rows = 1;
+                cols = 2;
+                if (!this->CameraList[0].is_connected && !this->CameraList[3].is_connected) {
+                    camera_order = {1, 2};
+                } else if (!this->CameraList[1].is_connected && !this->CameraList[2].is_connected) {
+                    camera_order = {0, 3};
+                } else if (!this->CameraList[0].is_connected && !this->CameraList[1].is_connected) {
+                    camera_order = {2, 3};
+                } else if (!this->CameraList[1].is_connected && !this->CameraList[3].is_connected) {
+                    camera_order = {0, 2};
+                } else if (!this->CameraList[0].is_connected && !this->CameraList[2].is_connected) {
+                    camera_order = {1, 3};
+                } else if (!this->CameraList[2].is_connected && !this->CameraList[3].is_connected) {
+                    camera_order = {0, 1};
+                } else {
+                    // camera_order = {0, 1}; // Default case if all cameras are connected
+                }
+            } else {
+                rows = 1;
+                cols = 1;
+                if (this->CameraList[0].is_connected) {
+                    camera_order = {0};
+                } else if (this->CameraList[1].is_connected) {
+                    camera_order = {1};
+                } else if (this->CameraList[2].is_connected) {
+                    camera_order = {2};
+                } else if (this->CameraList[3].is_connected) {
+                    camera_order = {3};
+                } else {
+                    // ROS_WARN("No cameras are connected");
                 }
             }
+
+            int width = image_width;
+            int height = image_height;
+
+            // Create a display image with enough space for the required rows and columns
+            cv::Mat disp_image = cv::Mat::zeros(height * rows, width * cols, assemble_cv_img.image.type());
+
+            auto it = this->image_queue_.begin();
+            for (int i = 0; i < camera_order.size(); ++i) {
+                int row = i / cols;
+                int col = i % cols;
+                std::advance(it, camera_order[i]);
+                auto &node = *it;
+                if (!node.image.empty()) {
+                    node.image.copyTo(disp_image(cv::Rect(col * width, row * height, width, height)));
+                }
+                it = this->image_queue_.begin(); // Reset iterator to the beginning
+            }
+
+            assemble_cv_img.image = disp_image;
+
             if(this->module_config_.compresse_assemble_image){
                 assemble_image_publisher_.publish(assemble_cv_img.toCompressedImageMsg());
             } else {
@@ -691,55 +789,104 @@ double Clearness(cv::Mat &img){
 	}
 =======
     if(image_node.image.empty()){
-		// ROS_ERROR("Image empty\n");
+        // ROS_ERROR("Image empty\n");
         return;
-    } else {
-        double clearness = Clearness(image_node.image);
-        uint32_t latency_us = std::chrono::duration_cast<std::chrono::microseconds>(time_now - image_node.cap_time_stamp).count();
-		static std::map<std::string, std::chrono::_V2::steady_clock::time_point> last_time_map;
-		static std::map<std::string, double> fps_map;
+    } else if (!this->module_config_.multi_window && !this->module_config_.calibration_mode) {
+        if (this->module_config_.show_img_info) {
+            double clearness = Clearness(image_node.image);
+            uint32_t latency_us = std::chrono::duration_cast<std::chrono::microseconds>(time_now - image_node.cap_time_stamp).count();
+            static std::map<std::string, std::chrono::_V2::steady_clock::time_point> last_time_map;
+            static std::map<std::string, double> fps_map;
 
-        auto now = std::chrono::steady_clock::now();
-        if (last_time_map.find(image_node.topic) != last_time_map.end()) {
-            auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_time_map[image_node.topic]).count();
-            fps_map[image_node.topic] = 1000.0 / duration;
+            auto now = std::chrono::steady_clock::now();
+            if (last_time_map.find(image_node.topic) != last_time_map.end()) {
+                auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_time_map[image_node.topic]).count();
+                fps_map[image_node.topic] = 1000.0 / duration;
+            }
+            last_time_map[image_node.topic] = now;
+
+            std::string camera_id = "Camera ID: " + image_node.topic;
+            std::string clearness_str = "Clearness: " + std::to_string(clearness);
+            std::string delay_str = "Image Delay (ms): " + std::to_string(latency_us / 1000);
+            std::string resolution_str = "Resolution: " + std::to_string(image_node.image.cols) + "x" + std::to_string(image_node.image.rows);
+            std::string fps_str = "FPS: " + std::to_string(fps_map[image_node.topic]);
+
+            cv::Scalar textColor = cv::Scalar(0,0,0);
+            int thickness = 2;
+            int font = cv::FONT_HERSHEY_PLAIN;
+            double font_scale = 2.0;
+            int line_height = 30;
+            cv::putText(image_node.image, camera_id, cv::Point(10, line_height * 1), font, font_scale, textColor, thickness);
+            cv::putText(image_node.image, clearness_str, cv::Point(10, line_height * 2), font, font_scale, textColor, thickness);
+            cv::putText(image_node.image, delay_str, cv::Point(10, line_height * 3), font, font_scale, textColor, thickness);
+            cv::putText(image_node.image, resolution_str, cv::Point(10, line_height * 4), font, font_scale, textColor, thickness);
+            cv::putText(image_node.image, fps_str, cv::Point(10, line_height * 5), font, font_scale, textColor, thickness);
         }
-        last_time_map[image_node.topic] = now;
 
-		std::stringstream info;
-		std::string camera_id = "Camera ID: " + image_node.topic;
-		std::string clearness_str = "Clearness: " + std::to_string(clearness);
-		std::string delay_str = "Image Delay (ms): " + std::to_string(latency_us / 1000);
-		std::string resolution_str = "Resolution: " + std::to_string(image_node.image.cols) + "x" + std::to_string(image_node.image.rows);
-		std::string fps_str = "FPS: " + std::to_string(fps_map[image_node.topic]);
-
-		cv::Scalar textColor = cv::Scalar(0, 0, 0);
-		int thickness = 2;
-		int font = cv::FONT_HERSHEY_PLAIN;
-		double font_scale = 2.0;
-		int line_height = 30;
-		cv::putText(image_node.image, camera_id, cv::Point(10, line_height * 1), font, font_scale, textColor, thickness);
-		cv::putText(image_node.image, clearness_str, cv::Point(10, line_height * 2), font, font_scale, textColor, thickness);
-		cv::putText(image_node.image, delay_str, cv::Point(10, line_height * 3), font, font_scale, textColor, thickness);
-		cv::putText(image_node.image, resolution_str, cv::Point(10, line_height * 4), font, font_scale, textColor, thickness);
-		cv::putText(image_node.image, fps_str, cv::Point(10, line_height * 5), font, font_scale, textColor, thickness);
         cv::Mat display_image;
         int num_cameras_ = this->num_cameras;
-        int rows = (num_cameras_ > 2) ? 2 : 1;
-        int cols = (num_cameras_ > 2) ? 2 : num_cameras_;
+        int rows, cols;
+        std::vector<int> camera_order;
+
+        if (num_cameras_ == 4) {
+            rows = 2;
+            cols = 2;
+            camera_order = {0, 3, 1, 2};
+        } else if (num_cameras_ == 3) {
+            rows = 2;
+            cols = 2;
+            if (!this->CameraList[0].is_connected) {
+                camera_order = {1, 2, 3};
+            } else if (!this->CameraList[1].is_connected) {
+                camera_order = {0, 2, 3};
+            } else if (!this->CameraList[2].is_connected) {
+                camera_order = {0, 1, 3};
+            } else {
+                camera_order = {0, 1, 2};
+            }
+        } else if (num_cameras_ == 2) {
+            rows = 1;
+            cols = 2;
+            if (!this->CameraList[0].is_connected && !this->CameraList[3].is_connected) {
+                camera_order = {1, 2};
+            } else if (!this->CameraList[1].is_connected && !this->CameraList[2].is_connected) {
+                camera_order = {0, 3};
+            } else if (!this->CameraList[0].is_connected && !this->CameraList[1].is_connected) {
+                camera_order = {2, 3};
+            } else if (!this->CameraList[1].is_connected && !this->CameraList[3].is_connected) {
+                camera_order = {0, 2};
+            } else if (!this->CameraList[0].is_connected && !this->CameraList[2].is_connected) {
+                camera_order = {1, 3};
+            } else if (!this->CameraList[2].is_connected && !this->CameraList[3].is_connected) {
+                camera_order = {0, 1};
+            } else {
+                // camera_order = {0, 1}; // Default case if all cameras are connected
+            }
+        } else {
+            rows = 1;
+            cols = 1;
+            if (this->CameraList[0].is_connected) {
+                camera_order = {0};
+            } else if (this->CameraList[1].is_connected) {
+                camera_order = {1};
+            } else if (this->CameraList[2].is_connected) {
+                camera_order = {2};
+            } else if (this->CameraList[3].is_connected) {
+                camera_order = {3};
+            } else {
+                // ROS_WARN("No cameras are connected");
+            }
+        }
         int width = image_node.image.cols;
         int height = image_node.image.rows;
 
-		// Create a display image with enough space for two rows and two columns
+        // Create a display image with enough space for the required rows and columns
         display_image = cv::Mat::zeros(height * rows, width * cols, image_node.image.type());
-
-        // Define the order of the cameras
-        std::vector<int> camera_order = {0, 3, 1, 2};
 
         auto it = this->image_queue_.begin();
         for (int i = 0; i < camera_order.size(); ++i) {
-            int row = i / 2;
-            int col = i % 2;
+            int row = i / cols;
+            int col = i % cols;
             std::advance(it, camera_order[i]);
             auto &node = *it;
             if (!node.image.empty()) {
@@ -747,7 +894,6 @@ double Clearness(cv::Mat &img){
             }
             it = this->image_queue_.begin(); // Reset iterator to the beginning
         }
-
         // Resize display image if it exceeds 1080p
         if (display_image.rows > 1080 || display_image.cols > 1920) {
             if (!display_image.empty()) {
@@ -755,7 +901,7 @@ double Clearness(cv::Mat &img){
                 cv::resize(display_image, display_image, cv::Size(1080, 720));
             }
         }
-
+        
         cv::imshow("FFC4PDriver", display_image);
         int key = cv::waitKey(1);
         if (key == 27 || key == 'q' || key == 'Q') { // Check if 'Esc' or 'q' or 'Q' key is pressed
@@ -763,6 +909,56 @@ double Clearness(cv::Mat &img){
             cv::destroyAllWindows();
             ros::shutdown(); // Shutdown ROS application
             return;
+        }
+    } else {
+        if (!this->module_config_.show_img_info) {
+            // ROS_DEBUG("Show pure image\n");
+            cv::imshow(image_node.topic.c_str(), image_node.image);
+            int key = cv::waitKey(1);
+            if (key == 27 || key == 'q' || key == 'Q') { // Check if 'Esc' or 'q' or 'Q' key is pressed
+                this->is_run_ = false;
+                cv::destroyAllWindows();
+                ros::shutdown(); // Shutdown ROS application
+                return;
+            }
+        } else {
+            // printf("Show info image\n");
+            double clearness = Clearness(image_node.image);
+            uint32_t latency_us = std::chrono::duration_cast<std::chrono::microseconds>(time_now - image_node.cap_time_stamp).count();
+            static std::map<std::string, std::chrono::_V2::steady_clock::time_point> last_time_map;
+            static std::map<std::string, double> fps_map;
+
+            auto now = std::chrono::steady_clock::now();
+            if (last_time_map.find(image_node.topic) != last_time_map.end()) {
+                auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_time_map[image_node.topic]).count();
+                fps_map[image_node.topic] = 1000.0 / duration;
+            }
+            last_time_map[image_node.topic] = now;
+
+            std::string camera_id = "Camera ID: " + image_node.topic;
+            std::string clearness_str = "Clearness: " + std::to_string(clearness);
+            std::string delay_str = "Image Delay (ms): " + std::to_string(latency_us / 1000);
+            std::string resolution_str = "Resolution: " + std::to_string(image_node.image.cols) + "x" + std::to_string(image_node.image.rows);
+            std::string fps_str = "FPS: " + std::to_string(fps_map[image_node.topic]);
+
+            cv::Scalar textColor = cv::Scalar(0,0,0);
+            int thickness = 2;
+            int font = cv::FONT_HERSHEY_PLAIN;
+            double font_scale = 2.0;
+            int line_height = 30;
+            cv::putText(image_node.image, camera_id, cv::Point(10, line_height * 1), font, font_scale, textColor, thickness);
+            cv::putText(image_node.image, clearness_str, cv::Point(10, line_height * 2), font, font_scale, textColor, thickness);
+            cv::putText(image_node.image, delay_str, cv::Point(10, line_height * 3), font, font_scale, textColor, thickness);
+            cv::putText(image_node.image, resolution_str, cv::Point(10, line_height * 4), font, font_scale, textColor, thickness);
+            cv::putText(image_node.image, fps_str, cv::Point(10, line_height * 5), font, font_scale, textColor, thickness);
+            cv::imshow(image_node.topic, image_node.image);
+            int key = cv::waitKey(1);
+            if (key == 27 || key == 'q' || key == 'Q') { // Check if 'Esc' or 'q' or 'Q' key is pressed
+                this->is_run_ = false;
+                cv::destroyAllWindows();
+                ros::shutdown(); // Shutdown ROS application
+                return;
+            }
         }
     }
     return;
@@ -775,7 +971,7 @@ double Clearness(cv::Mat &img){
     } else {
         cv::Mat gray, imgSobel;
         cv::Rect2d roi(img.cols / 3, img.rows / 3, img.cols / 3, img.rows / 3);
-        cv::rectangle(img, roi, cv::Scalar(0, 0, 0), 2);
+        cv::rectangle(img, roi, cv::Scalar(0,0,0), 2);
         if (img.channels() == 3) {
             cv::cvtColor(img(roi), gray, cv::COLOR_BGR2GRAY);
         } else {
